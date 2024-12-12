@@ -6,6 +6,7 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
@@ -27,7 +28,7 @@ public class ApiService {
 
     private static final Logger logger = LoggerFactory.getLogger(ApiService.class);
 
-    private final RestTemplate restTemplate;
+    RestTemplate restTemplate = new RestTemplate();
 
     @Value("${api.token.url}")
     private String tokenUrl;
@@ -38,9 +39,7 @@ public class ApiService {
     @Value("${batch.size}")
     private int batchSize;
 
-    public ApiService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-    }
+
 
     public List<Members> fetchMembersInBatches(String token) {
         logger.info("Fetching member data in batches with batch size: {}", batchSize);
@@ -70,7 +69,7 @@ public class ApiService {
        
         byte[] excelFile = generateLargeExcelFile(allMembers);
         String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-        String filePath = "/home/Data/MembersData_" + timestamp + ".xlsx";
+        String filePath = "D:\\MembersData_" + timestamp + ".xlsx";
         saveExcelFileToLocal(excelFile, filePath);
 
         return allMembers;

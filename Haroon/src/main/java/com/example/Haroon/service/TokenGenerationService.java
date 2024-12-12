@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -46,12 +47,9 @@ public class TokenGenerationService {
     private String accessToken;
     private Instant tokenExpiration;
 
-    private final RestTemplate restTemplate;
+    RestTemplate restTemplate = new RestTemplate();
 
-    public TokenGenerationService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-    }
-   // @Scheduled(cron = "${schedule.cron}")
+
     public String getToken() {
         logger.info("Checking if token is valid or needs regeneration.");
         if (accessToken == null || isTokenExpired()) {
