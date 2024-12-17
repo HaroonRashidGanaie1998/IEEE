@@ -51,15 +51,18 @@ public class TokenGenerationService {
     public TokenGenerationService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
-   // @Scheduled(cron = "${schedule.cron}")
+
     public String getToken() {
         logger.info("Checking if token is valid or needs regeneration.");
         if (accessToken == null || isTokenExpired()) {
             logger.info("Token is either null or expired. Generating a new token.");
             generateToken();
+        } else {
+            logger.info("Token is still valid.");
         }
         return accessToken;
     }
+
     private void generateToken() {
         logger.info("Initiating token generation process.");
         try {
@@ -74,7 +77,6 @@ public class TokenGenerationService {
             body.add("scope", scope);
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(body, headers);
-
             ResponseEntity<String> response = restTemplate.exchange(
                 tokenUrl,
                 HttpMethod.POST,
@@ -82,12 +84,19 @@ public class TokenGenerationService {
                 String.class
             );
 
-            accessToken = extractTokenFromResponse(response.getBody());
-            tokenExpiration = Instant.now().plusSeconds(extractTokenExpiration(response.getBody()));
+            // Handle response
+            if (response.getStatusCode().is2xxSuccessful()) {
+                accessToken = extractTokenFromResponse(response.getBody());
+                tokenExpiration = Instant.now().plusSeconds(extractTokenExpiration(response.getBody()));
 
-            logger.info("Token generated successfully. Expires at: {}", tokenExpiration);
+                logger.info("Token generated successfully. Expires at: {}", tokenExpiration);
+            } else {
+                logger.error("Failed to generate token. Response: {}", response.getBody());
+                accessToken = null; // Reset the token in case of failure
+            }
         } catch (Exception e) {
             logger.error("Error occurred while generating token: {}", e.getMessage(), e);
+            accessToken = null; // Ensure accessToken is reset in case of failure
         }
     }
 
@@ -119,5 +128,16 @@ public class TokenGenerationService {
             logger.error("Error extracting token expiration: {}", e.getMessage(), e);
         }
         return defaultTokenExpiration; 
+    }
+
+    // Optional: This method can be scheduled to periodically refresh the token.
+    @Scheduled(fixedRate = 1800000) // Every 30 minutes (adjust according to your needs)
+    public void refreshTokenPeriodically() {
+        if (isTokenExpired()) {
+            logger.info("Token expired, refreshing...");
+            generateToken();
+        } else {
+            logger.info("Token is still valid. No refresh needed.");
+        }
     }
 }
