@@ -1,0 +1,7 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.debug.settings.onBuildFailureProceed": true,
+    "appService.preDeployTask": "package:Haroon",
+    "appService.deploySubpath": "target/Haroon-1.0-SNAPSHOT.jar"
+}
