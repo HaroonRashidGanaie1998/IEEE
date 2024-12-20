@@ -11,21 +11,21 @@ import com.example.Haroon.service.TokenGenerationService;
 @SpringBootApplication(scanBasePackages = "com.example.Haroon")
 public class ExportInExcelApplication {
 	
-//	@Autowired
-//	private TokenGenerationService tokenService;
-//	
-//	@Autowired
-//	private MemberService memberService;
-//	
+	@Autowired
+	private TokenGenerationService tokenService;
+	
+	@Autowired
+	private MemberService memberService;
+	
     public static void main(String[] args) {
         SpringApplication.run(ExportInExcelApplication.class, args);
     }
     
     
-//    @Scheduled(cron = "${schedule.cron}")
-//    public void runCronJob() {
-//    	String token = tokenService.getToken();
-//    	memberService.fetchMembersInBatches(token);
-//    }
+    @Scheduled(cron = "${schedule.cron}")
+    public void runCronJob() {
+    	String token = tokenService.getToken();
+    	memberService.fetchMembersInBatches(token);
+    }
 }
 
