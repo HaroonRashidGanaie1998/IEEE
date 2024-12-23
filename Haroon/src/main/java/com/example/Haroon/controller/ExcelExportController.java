@@ -1,4 +1,5 @@
 package com.example.Haroon.controller;
+
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
@@ -45,13 +46,23 @@ public class ExcelExportController {
 
     @GetMapping("/downloadExcel")
     public void downloadExcel(HttpServletResponse response,
+                              @RequestParam(required = false) List<String> memberIds,
                               @RequestParam(defaultValue = "1") int page,
                               @RequestParam(defaultValue = "100") int pageSize) {
         try {
             logger.info("Starting the Excel download process");
             String token = tokenGenerationService.getToken();
             logger.debug("Generated token: {}", token);
-            List<Members> membersList = memberService.fetchMembersInBatches(token);
+
+            List<Members> membersList;
+            if (memberIds != null && !memberIds.isEmpty()) {
+                logger.info("Fetching members for provided member IDs");
+                membersList = memberService.fetchMembersInBatches(token);
+            } else {
+                logger.info("Fetching members in batches");
+                membersList = memberService.fetchMembersInBatches(token);
+            }
+
             logger.info("Fetched {} members from MemberService", membersList.size());
 
             try (SXSSFWorkbook workbook = new SXSSFWorkbook();
@@ -84,23 +95,39 @@ public class ExcelExportController {
                     row.createCell(9).setCellValue(username);
 
                     // Fetch Application Users and insert in the same row for this user
+                
                     List<ApplicationUsers> applicationData = applicationService.fetchApplicationDetailsForMember(memberId, token);
+
                     if (applicationData != null && !applicationData.isEmpty()) {
                         ApplicationUsers applicationUser = applicationData.get(0);
                         String organizationType = applicationUser.getOrganization_type();
-                        String typeOfInstitution = "N/A";
-                        try {
-                            int organizationTypeInt = Integer.parseInt(organizationType);
-                            typeOfInstitution = getTypeOfInstitution(organizationTypeInt);
-                        } catch (NumberFormatException e) {
-                            logger.warn("Invalid organization type format: {}", organizationType);
+                        String typeOfInstitution = "N/A"; 
+
+                        if (organizationType != null && !organizationType.trim().isEmpty()) {
+                            try {
+                                
+                                int organizationTypeInt = Integer.parseInt(organizationType.trim());
+                                typeOfInstitution = getTypeOfInstitution(organizationTypeInt);
+                            } catch (NumberFormatException e) {
+                                logger.warn("Invalid organization type format for memberId {}: {}", memberId, organizationType);
+                                typeOfInstitution = "Invalid format";  
+                            }
+                        } else {
+                            
+                            logger.warn("Organization type is null or empty for memberId: {}", memberId);
                         }
+
+                       
                         String useCase = getOrDefault(applicationUser.getDescription());
-                        row.createCell(6).setCellValue(useCase);  
+                        row.createCell(6).setCellValue(useCase);
                         row.createCell(8).setCellValue(typeOfInstitution);
+
+                    } else {
+                        logger.warn("No application data found for memberId: {}", memberId);
                     }
 
-                    // Fetch Package Users and insert in the same row for this user
+
+                   
                     List<PackageUsers> packageData = packageKeyService.fetchMembersDataById(token, memberId);
                     if (packageData != null && !packageData.isEmpty()) {
                         PackageUsers packageUser = packageData.get(0); 
