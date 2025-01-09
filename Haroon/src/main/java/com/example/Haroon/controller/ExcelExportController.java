@@ -20,12 +20,14 @@ import com.example.Haroon.service.TokenGenerationService;
 
 import jakarta.servlet.http.HttpServletResponse;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
+
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+
 
 @RestController
 public class ExcelExportController {
@@ -41,141 +43,146 @@ public class ExcelExportController {
     @Autowired
     private ApplicationService applicationService;
 
-    @Autowired
+   @Autowired
     private PackageKeyService packageKeyService;
+
+    private static final String DATE_FORMAT = "yyyy-MM-dd";
+    private static final String EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final String EXCEL_FILE_NAME = "IEEEMasheryUsers.xlsx";
 
     @GetMapping("/downloadExcel")
     public void downloadExcel(HttpServletResponse response,
                               @RequestParam(required = false) List<String> memberIds,
                               @RequestParam(defaultValue = "1") int page,
                               @RequestParam(defaultValue = "100") int pageSize) {
-        try {
-            logger.info("Starting the Excel download process");
+        logger.info("Starting the Excel download process");
+
+        try (SXSSFWorkbook workbook = new SXSSFWorkbook();
+             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
+
+            // Fetch data and populate workbook
             String token = tokenGenerationService.getToken();
-            logger.debug("Generated token: {}", token);
-
-            List<Members> membersList;
-            if (memberIds != null && !memberIds.isEmpty()) {
-                logger.info("Fetching members for provided member IDs");
-                membersList = memberService.fetchMembersInBatches(token);
-            } else {
-                logger.info("Fetching members in batches");
-                membersList = memberService.fetchMembersInBatches(token);
-            }
-
+            List<Members> membersList = fetchMembers(token, memberIds);
             logger.info("Fetched {} members from MemberService", membersList.size());
 
-            try (SXSSFWorkbook workbook = new SXSSFWorkbook();
-                 OutputStream outputStream = response.getOutputStream()) {
-                Sheet sheet = workbook.createSheet("Combined Data");
-                int rowIndex = 1;
-                createHeaderRow(sheet);
+            Sheet sheet = workbook.createSheet("Combined Data");
+            createHeaderRow(sheet);
 
-                for (Members member : membersList) {
-                    String memberId = member.getId();
-                    Row row = sheet.createRow(rowIndex++);
+            membersList.forEach(member -> populateMemberData(sheet, member, token));
 
-                    String customerName = getOrDefault(member.getFirstName()) + " " + getOrDefault(member.getLastName());
-                    String date = formatDate(getOrDefault(member.getCreated()));
-                    String institutionOrOrganization = getOrDefault(member.getCompany());
-                    String countryOfOrigin = member.getCountryCode();
-                    if (countryOfOrigin == null || countryOfOrigin.isEmpty()) {
-                        countryOfOrigin = getOrDefault(member.getRegistrationIpaddr());
-                    } else {
-                        countryOfOrigin = getOrDefault(countryOfOrigin);
-                    }
-                    String username = getOrDefault(member.getUsername());
+            // Write workbook to buffer
+            workbook.write(byteArrayOutputStream);
 
-                    // Insert member basic information into the row
-                    row.createCell(1).setCellValue(date);
-                    row.createCell(2).setCellValue(getOrDefault(member.getEmail()));
-                    row.createCell(3).setCellValue(customerName);
-                    row.createCell(4).setCellValue(institutionOrOrganization);
-                    row.createCell(5).setCellValue(countryOfOrigin);
-                    row.createCell(9).setCellValue(username);
+            // Write buffer to response
+            response.setContentType(EXCEL_CONTENT_TYPE);
+            response.setHeader("Content-Disposition", "attachment; filename=" + EXCEL_FILE_NAME);
+            response.getOutputStream().write(byteArrayOutputStream.toByteArray());
 
-                    // Fetch Application Users and insert in the same row for this user
-                
-                    List<ApplicationUsers> applicationData = applicationService.fetchApplicationDetailsForMember(memberId, token);
-
-                    if (applicationData != null && !applicationData.isEmpty()) {
-                        ApplicationUsers applicationUser = applicationData.get(0);
-                        String organizationType = applicationUser.getOrganization_type();
-                        String typeOfInstitution = "N/A"; 
-
-                        if (organizationType != null && !organizationType.trim().isEmpty()) {
-                            try {
-                                
-                                int organizationTypeInt = Integer.parseInt(organizationType.trim());
-                                typeOfInstitution = getTypeOfInstitution(organizationTypeInt);
-                            } catch (NumberFormatException e) {
-                                logger.warn("Invalid organization type format for memberId {}: {}", memberId, organizationType);
-                                typeOfInstitution = "Invalid format";  
-                            }
-                        } else {
-                            
-                            logger.warn("Organization type is null or empty for memberId: {}", memberId);
-                        }
-
-                       
-                        String useCase = getOrDefault(applicationUser.getDescription());
-                        row.createCell(6).setCellValue(useCase);
-                        row.createCell(8).setCellValue(typeOfInstitution);
-
-                    } else {
-                        logger.warn("No application data found for memberId: {}", memberId);
-                    }
-
-
-                   
-                    List<PackageUsers> packageData = packageKeyService.fetchMembersDataById(token, memberId);
-                    if (packageData != null && !packageData.isEmpty()) {
-                        PackageUsers packageUser = packageData.get(0); 
-                        String APIKey = getOrDefault(packageUser.getApikey());
-                        String APIKeyStatus = getOrDefault(packageUser.getStatus());
-                        row.createCell(7).setCellValue(APIKeyStatus);
-                        row.createCell(10).setCellValue(APIKey); 
-                    }
-                }
-
-                response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-                response.setHeader("Content-Disposition", "attachment; filename=IEEEMasheryUsers.xlsx");
-
-                workbook.write(outputStream);
-                logger.info("Excel file download completed successfully");
-
-            } catch (IOException e) {
-                logger.error("Error during Excel file generation: ", e);
-                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                response.getWriter().write("Error during Excel file generation.");
-            }
+            logger.info("Excel file download completed successfully");
 
         } catch (Exception e) {
-            logger.error("Error during Excel download: ", e);
+            logger.error("Error during Excel download", e);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             try {
-                response.getWriter().write("Error during Excel file generation.");
+                response.getWriter().write("Error during Excel download.");
             } catch (IOException ioException) {
                 logger.error("Error writing response: ", ioException);
             }
         }
     }
 
-    private String getTypeOfInstitution(int Organization_type) {
-        if (Organization_type == 1) {
-            return "Academic";
-        } else if (Organization_type == 2) {
-            return "Corporate";
-        } else if (Organization_type == 3) {
-            return "Government";
+
+    private List<Members> fetchMembers(String token, List<String> memberIds) {
+        if (memberIds != null && !memberIds.isEmpty()) {
+            logger.info("Fetching members for provided member IDs");
+            return memberService.fetchMembersInBatches(token);
         } else {
-            return "N/A"; 
+            logger.info("Fetching members in batches");
+            return memberService.fetchMembersInBatches(token);
         }
     }
 
-    // Create Excel header row
+    private void populateMemberData(Sheet sheet, Members member, String token) {
+        String memberId = member.getId();
+        Row row = sheet.createRow(sheet.getPhysicalNumberOfRows() + 1);
+
+       
+        insertMemberBasicData(row, member);
+
+      //  Fetch Application Users and insert data
+        List<ApplicationUsers> applicationData = applicationService.fetchApplicationDetailsForMember(memberId, token);
+        insertApplicationData(row, applicationData, memberId);
+
+        // Fetch Package Users and insert data
+        List<PackageUsers> packageData = packageKeyService.fetchMembersDataById(token, memberId);
+        insertPackageData(row, packageData ,memberId);
+    }
+
+    private void insertMemberBasicData(Row row, Members member) {
+        String customerName = getOrDefault(member.getFirstName()) + " " + getOrDefault(member.getLastName());
+        String date = formatDate(getOrDefault(member.getCreated()));
+        String institutionOrOrganization = getOrDefault(member.getCompany());
+        String countryOfOrigin = getOrDefault(member.getCountryCode(), member.getRegistrationIpaddr());
+        String username = getOrDefault(member.getUsername());
+
+        row.createCell(1).setCellValue(date);
+        row.createCell(2).setCellValue(getOrDefault(member.getEmail()));
+        row.createCell(3).setCellValue(customerName);
+        row.createCell(4).setCellValue(institutionOrOrganization);
+        row.createCell(5).setCellValue(countryOfOrigin);
+        row.createCell(9).setCellValue(username);
+    }
+
+    private void insertApplicationData(Row row, List<ApplicationUsers> applicationData, String memberId) {
+        if (applicationData != null && !applicationData.isEmpty()) {
+            ApplicationUsers applicationUser = applicationData.get(0);
+            String organizationType = applicationUser.getOrganization_type();
+            String typeOfInstitution = parseOrganizationType(organizationType);
+
+            String useCase = getOrDefault(applicationUser.getDescription());
+            row.createCell(6).setCellValue(useCase);
+            row.createCell(8).setCellValue(typeOfInstitution);
+        } else {
+            logger.warn("No application data found for memberId: {}", memberId);
+        }
+    }
+
+    private void insertPackageData(Row row, List<PackageUsers> packageData ,String memberId ) {
+        if (packageData != null && !packageData.isEmpty()) {
+            PackageUsers packageUser = packageData.get(0);
+            String APIKey = getOrDefault(packageUser.getApikey());
+            String APIKeyStatus = getOrDefault(packageUser.getStatus());
+            row.createCell(7).setCellValue(APIKeyStatus);
+            row.createCell(10).setCellValue(APIKey);
+        }else {
+        	 logger.warn("No package data found for memberId: {}", memberId);
+        }
+    }
+
+    private String parseOrganizationType(String organizationType) {
+        if (organizationType != null && !organizationType.trim().isEmpty()) {
+            try {
+                int organizationTypeInt = Integer.parseInt(organizationType.trim());
+                return getTypeOfInstitution(organizationTypeInt);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid organization type format: {}", organizationType);
+                return "Invalid format";
+            }
+        }
+        return "N/A";
+    }
+
+    private String getTypeOfInstitution(int organizationType) {
+        switch (organizationType) {
+            case 1: return "Academic";
+            case 2: return "Corporate";
+            case 3: return "Government";
+            default: return "N/A";
+        }
+    }
+
     private void createHeaderRow(Sheet sheet) {
-        Row headerRow = sheet.createRow(0); // Header row
+        Row headerRow = sheet.createRow(0);
         headerRow.createCell(1).setCellValue("Date");
         headerRow.createCell(2).setCellValue("Email");
         headerRow.createCell(3).setCellValue("Customer Name");
@@ -192,12 +199,16 @@ public class ExcelExportController {
         return value != null ? value : "N/A";
     }
 
+    private String getOrDefault(String value, String fallbackValue) {
+        return value != null && !value.isEmpty() ? value : fallbackValue != null ? fallbackValue : "N/A";
+    }
+
     private String formatDate(String date) {
         try {
             return Instant.parse(date)
-                          .atZone(ZoneOffset.UTC)
-                          .toLocalDate()
-                          .format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                    .atZone(ZoneOffset.UTC)
+                    .toLocalDate()
+                    .format(DateTimeFormatter.ofPattern(DATE_FORMAT));
         } catch (Exception e) {
             return date != null ? date : "N/A";
         }

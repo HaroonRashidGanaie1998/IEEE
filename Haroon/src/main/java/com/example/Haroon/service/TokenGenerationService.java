@@ -131,13 +131,13 @@ public class TokenGenerationService {
     }
 
     // Optional: This method can be scheduled to periodically refresh the token.
-    @Scheduled(fixedRate = 1800000) // Every 30 minutes (adjust according to your needs)
-    public void refreshTokenPeriodically() {
-        if (isTokenExpired()) {
-            logger.info("Token expired, refreshing...");
-            generateToken();
-        } else {
-            logger.info("Token is still valid. No refresh needed.");
-        }
-    }
+//    @Scheduled(fixedRate = 1800000) // Every 30 minutes (adjust according to your needs)
+//    public void refreshTokenPeriodically() {
+//        if (isTokenExpired()) {
+//            logger.info("Token expired, refreshing...");
+//            generateToken();
+//        } else {
+//            logger.info("Token is still valid. No refresh needed.");
+//        }
+//    }
 }
