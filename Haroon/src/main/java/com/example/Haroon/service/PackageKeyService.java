@@ -18,8 +18,9 @@ import java.util.Map;
 
 @Service
 public class PackageKeyService {
-	@Autowired
-	TokenGenerationService tokenGenerationService;
+
+    @Autowired
+    TokenGenerationService tokenGenerationService;
 
     private static final Logger logger = LoggerFactory.getLogger(PackageKeyService.class);
     private static final String AUTHORIZATION_HEADER = "Authorization";
@@ -41,8 +42,6 @@ public class PackageKeyService {
 
     private int successfulCalls = 0;
     private int failedCalls = 0;
-    private int rateLimitCounter = 0; 
-    private static final int RATE_LIMIT_THRESHOLD = 5; 
 
     public PackageKeyService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
@@ -54,103 +53,80 @@ public class PackageKeyService {
             throw new IllegalArgumentException("Member ID cannot be null or empty.");
         }
 
-        if (token == null || token.isBlank()) {
-            throw new IllegalArgumentException("Authorization token cannot be null or empty.");
-        }
-
         logger.info("Starting to fetch package keys for memberId: {}", memberId);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.set(AUTHORIZATION_HEADER, BEARER_PREFIX + tokenGenerationService.getToken());
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-
-        Map<String, String> urlParams = new HashMap<>();
-        urlParams.put("memberId", memberId);
-
         List<PackageUsers> packageUsersList = new ArrayList<>();
         int retries = 0;
 
-        while (true) {
-            String paginatedUrl = packageUrl;
-            logger.debug("Fetching data from URL: {}", paginatedUrl);
+        while (retries < maxRetries) {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set(AUTHORIZATION_HEADER, BEARER_PREFIX + tokenGenerationService.getToken());
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            Map<String, String> urlParams = new HashMap<>();
+            urlParams.put("memberId", memberId);
 
             try {
                 ResponseEntity<List<PackageUsers>> response = restTemplate.exchange(
-                        paginatedUrl,
+                        packageUrl,
                         HttpMethod.GET,
                         entity,
                         new ParameterizedTypeReference<List<PackageUsers>>() {},
                         urlParams
                 );
 
-                
-                successfulCalls++;
-                logger.info("Received 200 OK response for memberId: {}", memberId);
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    successfulCalls++;
+                    List<PackageUsers> batch = response.getBody();
+                    if (batch == null || batch.isEmpty()) {
+                        logger.info("No more data to fetch for memberId: {}", memberId);
+                        break;
+                    }
+                    packageUsersList.addAll(batch);
+                    logger.info("Fetched {} records so far for memberId: {}", packageUsersList.size(), memberId);
+                    if (batch.size() < batchSize) break;
 
-                List<PackageUsers> batch = response.getBody();
-
-                if (batch == null || batch.isEmpty()) {
-                    logger.info("No more data to fetch for memberId: {}", memberId);
-                    break;
+                    retries = 0;  // Reset retries on success
                 }
 
-                packageUsersList.addAll(batch);
-                logger.info("Fetched {} records so far for memberId: {}", packageUsersList.size(), memberId);
-
-                if (batch.size() < batchSize) break;
-
-                retries = 0;
-
-            } catch (HttpClientErrorException.Forbidden e) {
-                if (isRateLimitError(e)) {
-                    handleRateLimitError(memberId, retries++);
-                } else {
-                    failedCalls++;
-                    logger.error("Error fetching data for memberId: {}", memberId, e);
-                    throw new RuntimeException("Failed to fetch package details", e);
-                }
-            } catch (Exception e) {
+            } catch (HttpClientErrorException.Unauthorized ex) {
                 failedCalls++;
-                logger.error("Unexpected error fetching data for memberId: {}", memberId, e);
-                throw new RuntimeException("Failed to fetch package details", e);
+                logger.warn("401 Unauthorized for memberId: {}. Refreshing token and retrying...", memberId);
+                token = tokenGenerationService.getToken();  // Refresh token
+                retries++;
+                if (retries >= maxRetries) {
+                    logger.error("Max retries reached for memberId: {} after refreshing token.", memberId);
+                    throw new RuntimeException("Failed to fetch package details after multiple retries due to 401 Unauthorized", ex);
+                }
+            } catch (HttpClientErrorException.Forbidden ex) {
+                failedCalls++;
+                handleRateLimitError(memberId, retries++);
+            } catch (Exception ex) {
+                failedCalls++;
+                logger.error("Unexpected error fetching data for memberId: {}", memberId, ex);
+                throw new RuntimeException("Failed to fetch package details", ex);
             }
 
-//            try {
-//                logger.info("Waiting for 1 seconds before making the next API call...");
-//                Thread.sleep(1000); 
-//            } catch (InterruptedException ie) {
-//                Thread.currentThread().interrupt();
-//                throw new RuntimeException("Interrupted while waiting for retry", ie);
-//            }
+            try {
+                Thread.sleep(initialDelay);  // Adding a delay between retries
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while waiting for the delay", ie);
+            }
         }
 
         logger.info("Completed fetching package keys for memberId: {}. Total records: {}", memberId, packageUsersList.size());
         logger.info("Total successful API calls Package api: {}", successfulCalls);
         logger.info("Total failed API calls Package api: {}", failedCalls);
 
-        if (rateLimitCounter >= RATE_LIMIT_THRESHOLD) {
-            logger.error("Rate limit exceeded 5 times consecutively. Stopping the application.");
-            return new ArrayList<>(); 
-        }
-
         return packageUsersList;
     }
 
 
-    private boolean isRateLimitError(HttpClientErrorException.Forbidden ex) {
-        return ex.getMessage() != null && ex.getMessage().contains("Developer Over Qps");
-    }
 
     private void handleRateLimitError(String memberId, int retries) {
         if (retries >= maxRetries) {
             logger.error("Max retries reached for memberId: {}, giving up.", memberId);
             throw new RuntimeException("Failed to fetch package details after multiple retries");
-        }
-
-        
-        rateLimitCounter++;
-        if (rateLimitCounter >= RATE_LIMIT_THRESHOLD) {
-            logger.error("Consecutive 403 errors threshold reached for memberId: {}.", memberId);
         }
 
         long backoffTime = (long) Math.pow(2, retries) * initialDelay;

@@ -53,12 +53,12 @@ public class TokenGenerationService {
     }
 
     public String getToken() {
-        logger.info("Checking if token is valid or needs regeneration.");
+        logger.debug("Checking if token is valid or needs regeneration.");
         if (accessToken == null || isTokenExpired()) {
-            logger.info("Token is either null or expired. Generating a new token.");
+            logger.debug("Token is either null or expired. Generating a new token.");
             generateToken();
         } else {
-            logger.info("Token is still valid.");
+            logger.debug("Token is still valid.");
         }
         return accessToken;
     }
@@ -130,14 +130,5 @@ public class TokenGenerationService {
         return defaultTokenExpiration; 
     }
 
-    // Optional: This method can be scheduled to periodically refresh the token.
-//    @Scheduled(fixedRate = 1800000) // Every 30 minutes (adjust according to your needs)
-//    public void refreshTokenPeriodically() {
-//        if (isTokenExpired()) {
-//            logger.info("Token expired, refreshing...");
-//            generateToken();
-//        } else {
-//            logger.info("Token is still valid. No refresh needed.");
-//        }
-//    }
+   
 }
